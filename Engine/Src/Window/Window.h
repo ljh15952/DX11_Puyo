@@ -36,6 +36,9 @@ namespace Engine {
 		int GetWidth() const { return m_width; }
 		int GetHeight() const { return m_height; }
 
+		// 창 제목 표시줄 글자를 바꾼다
+		void SetTitle(const wchar_t* title);
+
 	private:
 		// OS 는 Window 객체(this)를 모르므로 인자 4개만 넘겨준다.
 		// 멤버 함수는 this 를 숨은 인자로 받아야 하니 안 맞음 → this 가 없는 static 으로 만든다.

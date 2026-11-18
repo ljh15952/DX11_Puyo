@@ -64,4 +64,8 @@ namespace Engine {
 		}
 		return DefWindowProcW(hwnd, msg, wparam, lparam); // 나머지는 OS 기본 처리
 	}
+
+	void Window::SetTitle(const wchar_t* title) {
+		SetWindowTextW(m_hwnd, title);
+	}
 }

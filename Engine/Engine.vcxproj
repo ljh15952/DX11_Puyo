@@ -147,14 +147,16 @@
     </Manifest>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClInclude Include="Src\Engine.h" />
-    <ClInclude Include="Src\Graphics.h" />
-    <ClInclude Include="Src\Window.h" />
+    <ClInclude Include="Src\Engine\Engine.h" />
+    <ClInclude Include="Src\Graphics\Graphics.h" />
+    <ClInclude Include="Src\Timer\Timer.h" />
+    <ClInclude Include="Src\Window\Window.h" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="Src\Engine.cpp" />
-    <ClCompile Include="Src\Graphics.cpp" />
-    <ClCompile Include="Src\Window.cpp" />
+    <ClCompile Include="Src\Engine\Engine.cpp" />
+    <ClCompile Include="Src\Graphics\Graphics.cpp" />
+    <ClCompile Include="Src\Timer\Timer.cpp" />
+    <ClCompile Include="Src\Window\Window.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
