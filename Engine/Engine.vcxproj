@@ -147,14 +147,15 @@
     </Manifest>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClInclude Include="Src\Engine\Engine.h" />
     <ClInclude Include="Src\Graphics\Graphics.h" />
+    <ClInclude Include="Src\Graphics\SpriteRenderer.h" />
+    <ClInclude Include="Src\Graphics\SpriteShader.h" />
     <ClInclude Include="Src\Timer\Timer.h" />
     <ClInclude Include="Src\Window\Window.h" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="Src\Engine\Engine.cpp" />
     <ClCompile Include="Src\Graphics\Graphics.cpp" />
+    <ClCompile Include="Src\Graphics\SpriteRenderer.cpp" />
     <ClCompile Include="Src\Timer\Timer.cpp" />
     <ClCompile Include="Src\Window\Window.cpp" />
   </ItemGroup>

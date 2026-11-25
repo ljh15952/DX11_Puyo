@@ -4,6 +4,7 @@
 #include "Window\Window.h"
 #include "Graphics\Graphics.h"
 #include "Timer\Timer.h"
+#include "Graphics\SpriteRenderer.h"
 
 int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
 
@@ -15,6 +16,10 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
 	//  반대로 하면 창이 먼저 사라진 뒤 스왑체인이 정리되어 문제가 될 수 있다
 	Engine::Graphics graphics;
 	if (!graphics.Init(window.GetHwnd(), window.GetWidth(), window.GetHeight()))
+		return -1;
+
+	Engine::SpriteRenderer spriteRenderer;
+	if (!spriteRenderer.Init(graphics))
 		return -1;
 
 	Engine::Timer timer;
@@ -48,6 +53,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
 		float blue = 0.25f + 0.15f * std::sin(t * 2.0f);
 
 		graphics.BeginFrame(0.1f, 0.1f, blue);
+		spriteRenderer.Draw();
 		graphics.EndFrame();
 	}
 
