@@ -45,11 +45,18 @@ namespace Engine {
 		ID3D11Device* GetDevice() const { return m_device.Get(); } // .Get(): ComPtr 안의 생포인터
 		ID3D11DeviceContext* GetContext() const { return m_context.Get(); }
 
+		int GetWidth() const { return m_width; }
+		int GetHeight() const { return m_height; }
+
 	private:
 		ComPtr<ID3D11Device> m_device; // 자원 생성
 		ComPtr<ID3D11DeviceContext> m_context; // 그리기
 		ComPtr<IDXGISwapChain> m_swapChain; // 백버퍼 교대
 		ComPtr<ID3D11RenderTargetView> m_rtv; // 백버퍼에 붙인 "여기에 그려라" 이름표
 		D3D11_VIEWPORT m_viewport{}; // 렌더 타겟 중 실제로 그릴 사각형 영역
+
+		int m_width = 0; // 백버퍼(화면) 크기. 투영 행렬 등에 사용
+		int m_height = 0;
+
 	};
 }

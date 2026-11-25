@@ -2,6 +2,8 @@
 #include "SpriteShader.h"
 #include <d3dcompiler.h> // D3DCompile: HLSL 문자열 → GPU 기계어(바이트코드)
 #include <cstring>
+#include <cstdint> // std::uint16_t (부호 없는 16비트 정수)
+
 
 #pragma comment(lib, "d3dcompiler.lib")
 
@@ -11,15 +13,20 @@ namespace Engine {
 	//  다른 cpp 에 같은 이름(Vertex 등)이 있어도 충돌하지 않는다. (파일 전용 static 과 같은 효과)
 
 	namespace {
-		// 정점 하나의 메모리 모양. HLSL 의 VSInput 과 순서·크기가 맞아야 한다
-		//  x,y      = float 2개 = 8바이트  (오프셋 0)
-		//  r,g,b,a  = float 4개 = 16바이트 (오프셋 8)
-		//  → 정점 하나 = 24바이트
-
+		// 정점 = 위치만 (색은 상수 버퍼로 옮겼다). float 2개 = 8바이트
 		struct Vertex {
 			float x, y;
-			float r, g, b, a;
 		};
+
+		// HLSL 의 cbuffer SpriteCB 와 똑같은 모양
+		struct SpriteCB {
+			DirectX::XMFLOAT4X4 transform; // 64바이트
+			DirectX::XMFLOAT4 color; // 16바이트
+		};
+
+		// 상수 버퍼 크기는 반드시 16바이트의 배수여야 한다 (아니면 CreateBuffer 실패).
+		// static_assert: 조건이 거짓이면 "컴파일 에러"를 낸다 → 실행 전에 실수를 잡는다
+		static_assert(sizeof(SpriteCB) % 16 == 0, "상수 버퍼 크기는 16바이트 배수여야 합니다");
 
 		// HLSL 소스를 컴파일한다.
 		//  entry : 진입점 함수 이름 ("VSMain" 등)
@@ -86,18 +93,15 @@ namespace Engine {
 
 		// ---------- 2) 입력 레이아웃 ----------
 		//  GPU 는 정점 버퍼를 그냥 "바이트 덩어리"로 본다.
-		//  "앞 8바이트는 POSITION(float2), 그다음 16바이트는 COLOR(float4)" 라고 알려 주는 설명서
+		//  "앞 8바이트는 POSITION(float2)
 		D3D11_INPUT_ELEMENT_DESC layout[] =
 		{
 			// 시맨틱 이름 | 시맨틱 번호 | 형식                          | 슬롯 | 오프셋 | 정점마다 읽음            | (인스턴싱용)
 			{ "POSITION",  0,            DXGI_FORMAT_R32G32_FLOAT,       0,     0,       D3D11_INPUT_PER_VERTEX_DATA, 0 },
-			{ "COLOR",     0,            DXGI_FORMAT_R32G32B32A32_FLOAT, 0,     8,       D3D11_INPUT_PER_VERTEX_DATA, 0 },
 			//  R32G32_FLOAT       = 32비트 float 2개 (= float2)
-			//  R32G32B32A32_FLOAT = 32비트 float 4개 (= float4)
-			//  오프셋 8 = Vertex 구조체에서 r 이 시작하는 위치 (x,y 가 4바이트×2)
 		};
 		hr = device->CreateInputLayout(
-			layout, _countof(layout),                            // _countof: 배열 원소 개수 (여기선 2)
+			layout, _countof(layout),                            // _countof: 배열 원소 개수 (여기선 1)
 			vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), // VS 바이트코드: 시맨틱 이름이 VS 입력과 맞는지 검사용
 			&m_inputLayout);
 		if (FAILED(hr))
@@ -106,16 +110,16 @@ namespace Engine {
 		// ---------- 3) 정점 버퍼 ----------
 		//  정점 순서 = 시계 방향 (위 → 오른쪽 아래 → 왼쪽 아래)
 		//  D3D 는 기본적으로 "시계 방향 = 앞면"으로 보고, 반시계 방향 삼각형은 뒷면이라 안 그린다 (컬링).
-		//  순서를 거꾸로 하면 에러 없이 그냥 아무것도 안 보인다 → 흔한 함정
 		Vertex vertices[] =
 		{
-			{  0.0f,  0.5f,   1.0f, 0.0f, 0.0f, 1.0f },  // 위        : 빨강
-			{  0.5f, -0.5f,   0.0f, 1.0f, 0.0f, 1.0f },  // 오른쪽 아래: 초록
-			{ -0.5f, -0.5f,   0.0f, 0.0f, 1.0f, 1.0f },  // 왼쪽 아래 : 파랑
+			{ 0.0f, 0.0f },   // 0: 왼쪽 위
+			{ 1.0f, 0.0f },   // 1: 오른쪽 위
+			{ 1.0f, 1.0f },   // 2: 오른쪽 아래
+			{ 0.0f, 1.0f },   // 3: 왼쪽 아래
 		};
 
 		D3D11_BUFFER_DESC bd{};
-		bd.ByteWidth = sizeof(vertices); // 버퍼 크기 (24바이트 × 3 = 72)
+		bd.ByteWidth = sizeof(vertices); // 버퍼 크기 (8바이트 × 4 = 32)
 		bd.Usage = D3D11_USAGE_IMMUTABLE; // GPU 전용. CPU → GPU 복사만 가능
 		bd.BindFlags = D3D11_BIND_VERTEX_BUFFER; // 정점 버퍼 용도
 
@@ -127,29 +131,96 @@ namespace Engine {
 		if (FAILED(hr))
 			return false;
 
+		// ---------- 4) 인덱스 버퍼 ----------
+		// 두 삼각형 모두 화면에서 시계 방향 (0→1→2 : 오른쪽→아래, 0→2→3 : 대각선→왼쪽)
+		// uint16_t: 정점 번호가 65535 이하라 2바이트로 충분. 메모리 절약
+		std::uint16_t indices[] = {
+			0, 1, 2, // 삼각형 1
+			0, 2, 3, // 삼각형 2
+		};
+		
+		D3D11_BUFFER_DESC ibd{};
+		ibd.ByteWidth = sizeof(indices); // 버퍼 크기 (2바이트 × 6 = 12)
+		ibd.Usage = D3D11_USAGE_IMMUTABLE; // GPU 전용. CPU → GPU 복사만 가능
+		ibd.BindFlags = D3D11_BIND_INDEX_BUFFER; // 인덱스 버퍼 용도
+
+		D3D11_SUBRESOURCE_DATA iInit{};
+		iInit.pSysMem = indices;
+
+		hr = device->CreateBuffer(&ibd, &iInit, &m_indexBuffer);
+		if (FAILED(hr))
+			return false;
+
+		// ---------- 5) 상수 버퍼 ----------
+		D3D11_BUFFER_DESC cbd{};
+		cbd.ByteWidth = sizeof(SpriteCB); // 상수 버퍼 크기, 80바이트 (16의 배수)
+		cbd.Usage = D3D11_USAGE_DEFAULT; // DEFAULT: GPU 메모리지만 UpdateSubresource 로 내용 교체 가능
+										//  (IMMUTABLE 은 생성 후 못 바꾸므로 안 된다)
+		cbd.BindFlags = D3D11_BIND_CONSTANT_BUFFER; // 상수 버퍼 용도
+
+		hr = device->CreateBuffer(&cbd, nullptr, &m_constantBuffer); // 초기 데이터 nullptr: 그릴 때마다 채운다
+		if (FAILED(hr))
+			return false;
+
+		// ---------- 6) 직교 투영 행렬 ----------
+		// OrthographicOffCenterLH(왼쪽, 오른쪽, 아래, 위, 가까운 z, 먼 z)
+		// 왼쪽=0, 오른쪽=화면 너비 → x 가 -1 ~ +1 로
+		// "아래"=화면 높이, "위"=0  → y 를 뒤집어서 위쪽(0)이 +1, 아래쪽(높이)이 -1 이 되게
+		// LH = Left-Handed (D3D 기본 좌표계)
+		float w = static_cast<float>(graphics.GetWidth());
+		float h = static_cast<float>(graphics.GetHeight());
+		DirectX::XMMATRIX proj = DirectX::XMMatrixOrthographicOffCenterLH(0.0f, w, h, 0.0f, 0.0f, 1.0f);
+		DirectX::XMStoreFloat4x4(&m_projection, proj); // 계산용 XMMATRIX → 저장용 XMFLOAT4X4
+
 		return true;
 	}
 
-	void SpriteRenderer::Draw() {
-		// ---------- IA: 정점을 어떻게 읽을지 ----------
-		UINT stride = sizeof(Vertex); // 정점 하나의 크기. 다음 정점으로 넘어갈 때 몇 바이트 건너뛸지
-		UINT offset = 0; // 정점 버퍼 시작 위치. 보통 0
-		m_context->IASetInputLayout(m_inputLayout.Get()); // 입력 레이아웃
-		m_context->IASetVertexBuffers(
-			0, 1, // 0번 슬롯부터 1개
-			m_vertexBuffer.GetAddressOf(), // 정점 버퍼 주소, 넘길 때는 & 가 아니라 GetAddressOf() 
-			&stride, &offset
-		);
+	void SpriteRenderer::DrawRect(float x, float y, float width, float height,
+		float r, float g, float b, float a)   // 기본 인자(= 1.0f)는 여기 다시 쓰지 않는다
+	{
+		// 이 함수 안에서만 DirectX:: 를 생략 
+		// 헤더에 using namespace 를 쓰면
+		// include 하는 모든 파일로 퍼지므로, 범위를 좁게 함수 안에서만 쓴다
+		using namespace DirectX;
+		
+		// ---------- 변환 행렬 만들기 ----------
+		//  크기 1 사각형을 → (width, height) 로 늘리고 → (x, y) 로 옮기고 → NDC 로 투영
+		//  DirectXMath 는 "왼쪽부터 순서대로" 적용된다: Scale * Translate * Proj
+		//  순서를 바꿔서 Translate 먼저 하면 이동한 거리까지 같이 늘어나 버린다
+		XMMATRIX world = XMMatrixScaling(width, height, 1.0f) * XMMatrixTranslation(x, y, 0.0f);
+		XMMATRIX proj = XMLoadFloat4x4(&m_projection);   // 저장용 → 계산용
 
-		// TRIANGLELIST: 정점 3개씩 끊어서 삼각형 하나로 본다 (6개면 삼각형 2개)
-		m_context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+		SpriteCB cb;
+		// Transpose(전치: 행과 열 바꾸기)해서 보낸다.
+		// DirectXMath 는 행렬을 "가로줄(행) 단위"로 메모리에 두고,
+		// HLSL 은 기본적으로 "세로줄(열) 단위"로 읽는다. 그대로 보내면 뒤집혀 읽혀서 엉뚱한 곳에 그려진다
+		XMStoreFloat4x4(&cb.transform, XMMatrixTranspose(world * proj));
+		cb.color = XMFLOAT4(r, g, b, a);
 
-		// ---------- VS / PS: 어떤 셰이더로 그릴지 ----------
-		m_context->VSSetShader(m_vertexShader.Get(), nullptr, 0);  // 뒤 두 인자: 클래스 인스턴스 (안 씀)
+		// CPU 의 cb 내용을 GPU 상수 버퍼로 복사
+		// (대상, 서브리소스 번호, 일부만 복사할 범위(nullptr=전체), 원본 주소, 행 간격, 면 간격) — 뒤 둘은 텍스처용이라 0
+		m_context->UpdateSubresource(m_constantBuffer.Get(), 0, nullptr, &cb, 0, 0);
+
+		// ---------- IA ----------
+		UINT stride = sizeof(Vertex); // 이제 8바이트
+		UINT offset = 0;
+		m_context->IASetInputLayout(m_inputLayout.Get());
+		m_context->IASetVertexBuffers(0, 1, m_vertexBuffer.GetAddressOf(), &stride, &offset);
+		// 인덱스 형식 R16_UINT = uint16_t 와 짝. 마지막 0 = 버퍼 시작 오프셋
+		m_context->IASetIndexBuffer(m_indexBuffer.Get(), DXGI_FORMAT_R16_UINT, 0);
+		m_context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST); // 삼각형 2개로 사각형
+
+		// ---------- 셰이더 + 상수 버퍼 연결 ----------
+		m_context->VSSetShader(m_vertexShader.Get(), nullptr, 0); // 클래스 링키지 안 씀
+		m_context->VSSetConstantBuffers(0, 1, m_constantBuffer.GetAddressOf()); // b0 ← transform 을 VS 가 씀
 		m_context->PSSetShader(m_pixelShader.Get(), nullptr, 0);
+		m_context->PSSetConstantBuffers(0, 1, m_constantBuffer.GetAddressOf());  // b0 ← color 를 PS 가 씀
+		// VS 와 PS 는 따로따로 연결해야 한다. PS 쪽을 빼먹으면 color 가 0(검정·투명)으로 읽힌다
 
-		// ---------- 그려라 ----------
-		m_context->Draw(3, 0);   // 정점 3개를, 0번째 정점부터
+		// ---------- 그리기 ----------
+		//  Draw 대신 DrawIndexed: (인덱스 개수, 시작 인덱스, 정점 번호에 더할 값)
+		m_context->DrawIndexed(6, 0, 0);
+
 	}
 
 }

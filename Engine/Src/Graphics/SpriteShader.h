@@ -27,26 +27,37 @@ namespace Engine {
 	//  VS 출력의 color      : 정점 3개 사이의 픽셀은 색이 자동으로 "섞여서(보간)" PS 로 들어온다
 	// ---------------------------------------------------------------
 
+	// ---- 5-2 추가 설명 ----
+	//  cbuffer SpriteCB : register(b0)
+	//      상수 버퍼 선언. C++ 쪽 SpriteCB 구조체와 "순서·크기"가 똑같아야 한다.
+	//      register(b0) = 상수 버퍼 0번 슬롯. C++ 의 VSSetConstantBuffers(0, ...) 의 0 과 짝
+	//  float4x4         : 4x4 행렬
+	//  mul(v, M)        : 벡터 v 에 행렬 M 을 곱한다 (행 벡터 방식: v 가 왼쪽)
+	//  정점 색(COLOR)을 없애고, 색은 상수 버퍼의 color 하나로 사각형 전체를 칠한다
+
 	inline constexpr const char* kSpriteShaderSource = R"(
+
+cbuffer SpriteCB : register(b0){
+	float4x4 transform;
+	float4 color;
+};
+
 struct VSInput{
 	float2 pos : POSITION;
-	float4 color : COLOR;
 };
 
 struct PSInput{
 	float4 pos : SV_POSITION;
-	float4 color : COLOR;
 };
 
 PSInput VSMain(VSInput input){
 	PSInput output;
-	output.pos = float4(input.pos, 0.0f, 1.0f);
-	output.color = input.color;
+	output.pos = mul(float4(input.pos, 0.0f, 1.0f), transform);
 	return output;
 }
 
 float4 PSMain(PSInput input) : SV_TARGET{
-	return input.color;
+	return color;
 }
 )";
 

@@ -9,7 +9,7 @@
 int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
 
 	Engine::Window window;
-	if(!window.Create(L"Pu", 800, 600))
+	if (!window.Create(L"Pu", 800, 600))
 		return -1;
 
 	// 지역 변수는 선언의 "역순"으로 소멸된다 → graphics 가 먼저 정리되고 window 가 나중에 파괴된다.
@@ -30,6 +30,16 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
 	int frameCount = 0; // 1초 동안 몇 프레임이 그려졌는지 세기 위한 카운터
 
 
+
+	// 뿌요 보드: 가로 6칸 × 세로 12칸, 한 칸 40픽셀
+	const float cell = 40.0f;
+	const float boardX = 280.0f; // (800 - 6*40) / 2 = 가로 가운데
+	const float boardY = 60.0f;
+	float fallY = 0.0f; // 떨어지는 사각형의 보드 안 y 위치 (픽셀)
+
+
+
+
 	// 루프
 	while (window.ProcessMessage()) {
 		timer.Tick(); // 시간 간격 계산
@@ -47,13 +57,21 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
 		}
 
 		// ----- dt 동작 확인용 -----
-        //  sin 은 -1 ~ 1 을 반복 → 0.25 ± 0.15 = 0.10 ~ 0.40 사이를 오간다
-        //  * 2.0f : 진동 속도 (클수록 빨리 깜빡임)
+		//  sin 은 -1 ~ 1 을 반복 → 0.25 ± 0.15 = 0.10 ~ 0.40 사이를 오간다
+		//  * 2.0f : 진동 속도 (클수록 빨리 깜빡임)
 		float t = timer.GetTotalTime();
 		float blue = 0.25f + 0.15f * std::sin(t * 2.0f);
 
 		graphics.BeginFrame(0.1f, 0.1f, blue);
-		spriteRenderer.Draw();
+		// 떨어지기: "1초에 120픽셀" × dt → FPS 와 상관없이 같은 속도
+		fallY += 120.0f * dt;
+		if (fallY > cell * 11)
+			fallY = 0.0f; // 바닥(12번째 칸)에 닿으면 맨 위로
+
+		spriteRenderer.DrawRect(boardX, boardY, cell * 6, cell * 12, 0.05f, 0.05f, 0.1f);
+		spriteRenderer.DrawRect(boardX + cell * 2, boardY + fallY, cell, cell, 0.9f, 0.2f, 0.2f);
+		spriteRenderer.DrawRect(boardX + cell * 2, boardY + fallY - cell, cell, cell, 0.2f, 0.8f, 0.2f);
+
 		graphics.EndFrame();
 	}
 

@@ -9,6 +9,9 @@ namespace Engine {
 
 	bool Graphics::Init(HWND hwnd, int width, int height) {
 
+		m_width = width;
+		m_height = height;
+
 		// 1. 스왑체인 설정
 		DXGI_SWAP_CHAIN_DESC scd{}; // {} = 모든 칸 0 초기화. 안 하면 쓰레기값으로 실패한다
 		scd.BufferDesc.Width = width; // 백버퍼 크기 = 창 클라이언트 크기
