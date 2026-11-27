@@ -107,6 +107,11 @@ namespace Engine {
 
 		ComPtr<ID3D11SamplerState> m_sampler; // 텍스처 읽는 규칙
 		Texture m_whiteTexture; // 1x1 흰색. DrawRect(단색) 용
+
+		// 알파 블렌딩 규칙 (OM 단계 설정). Init 에서 한 번 만들고 그릴 때마다 꽂는다
+		ComPtr<ID3D11BlendState> m_blendState;
+
+
 	};
 
 }

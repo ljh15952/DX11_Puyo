@@ -200,6 +200,38 @@ namespace Engine {
 		const std::uint32_t white = 0xFFFFFFFF;
 		if (!m_whiteTexture.Create(device, 1, 1, &white)) return false;
 
+		// ---------- 9) 블렌드 스테이트 (알파 블렌딩) ----------
+		// 결과 = Src × SrcBlend  (BlendOp)  Dest × DestBlend
+		// Src  = 지금 PS 가 낸 새 색,  Dest = 백버퍼에 이미 있는 색
+		D3D11_BLEND_DESC bld{};
+		bld.AlphaToCoverageEnable = FALSE; // MSAA 용 기법 (안 씀)
+		bld.IndependentBlendEnable = FALSE; // FALSE = RenderTarget[0] 설정을 모든 렌더 타겟에 공통 적용
+
+		// rt 를 고치면 bld.RenderTarget[0] 이 직접 바뀐다 (& 를 빼면 복사본만 바뀌고 원본은 그대로 → 블렌딩 안 됨)
+		auto& rt = bld.RenderTarget[0];
+		rt.BlendEnable = TRUE;
+
+		// RGB 섞는 식:  새색 × a  +  기존색 × (1 - a)
+		rt.SrcBlend = D3D11_BLEND_SRC_ALPHA; // × 새 색의 알파
+		rt.DestBlend = D3D11_BLEND_INV_SRC_ALPHA; // × (1 - 새 색의 알파)   INV = inverse(1 에서 뺀 값)
+		rt.BlendOp = D3D11_BLEND_OP_ADD; // 두 항을 더한다
+
+		// 알파 채널 자체를 섞는 식 (백버퍼 알파). 화면 표시에는 거의 영향 없음, 관례적인 값
+		rt.SrcBlendAlpha = D3D11_BLEND_ONE;
+		rt.DestBlendAlpha = D3D11_BLEND_INV_SRC_ALPHA;
+		rt.BlendOpAlpha = D3D11_BLEND_OP_ADD;
+
+		// 어느 채널(R,G,B,A)에 쓸지. ALL = 전부 (0 이면 아무것도 안 그려진다)
+		rt.RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
+
+		hr = device->CreateBlendState(&bld, &m_blendState);
+		if (FAILED(hr))
+			return false;
+
+		// 참고: WIC 에서 32bppRGBA 로 읽었으니 "스트레이트 알파"(RGB 와 A 가 따로) 이미지다.
+		//  RGB 에 미리 A 를 곱해 둔 "프리멀티플라이드 알파"(PRGBA) 는 SrcBlend 를 ONE 으로 써야 한다
+		//  → 이미지 형식과 블렌드 식이 짝이 안 맞으면 가장자리가 어둡거나 밝게 테두리가 생긴다
+
 
 		return true;
 	}
@@ -249,6 +281,16 @@ namespace Engine {
 		m_context->PSSetShaderResources(0, 1, &srv);
 		// s0 ← 샘플러 (ComPtr 이라 GetAddressOf)
 		m_context->PSSetSamplers(0, 1, m_sampler.GetAddressOf());
+
+		// ---------- OM: 블렌딩 ----------
+		// (블렌드 스테이트, 블렌드 팩터, 샘플 마스크)
+		// 블렌드 팩터: BLEND_FACTOR 를 쓸 때만 의미 있음. nullptr = (1,1,1,1)
+		// 0xFFFFFFFF: 샘플 마스크. MSAA 샘플 중 어느 것에 쓸지 → 전부
+		// 매 Draw 마다 꽂는 건 낭비지만, 다른 코드가 상태를 바꿔도 안전하다 (나중에 배칭 때 정리)
+		m_context->OMSetBlendState(m_blendState.Get(), nullptr, 0xFFFFFFFF);
+
+
+
 
 		// ---------- 그리기 ----------
 		//  Draw 대신 DrawIndexed: (인덱스 개수, 시작 인덱스, 정점 번호에 더할 값)

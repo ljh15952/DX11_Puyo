@@ -125,6 +125,10 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
 		spriteRenderer.DrawSprite(puyoSheet, Rect{ boardX + cell * 4, bottomY, cell * 2, cell / 2 });
 
 
+		// 착지 미리보기: 같은 그림을 알파 0.35 로 → 반투명
+		// Color 의 a 가 셰이더에서 텍스처 알파에 곱해진다 (텍스처 a × 틴트 a)
+		spriteRenderer.DrawSprite(puyoSheet, Rect{ boardX + cell * 2, bottomY - cell, cell, cell },
+			PuyoFrame(FaceNormal), Color{ 1.00f, 0.35f, 0.35f, 0.35f });
 
 		graphics.EndFrame();
 	}
