@@ -23,6 +23,7 @@ namespace Engine {
 		struct SpriteCB {
 			DirectX::XMFLOAT4X4 transform; // 64바이트
 			DirectX::XMFLOAT4 color; // 16바이트
+			DirectX::XMFLOAT4 uvRect; // 16바이트 (x, y, width, height : UV 단위)  → 합계 96 = 16의 배수
 		};
 
 		// 상수 버퍼 크기는 반드시 16바이트의 배수여야 한다 (아니면 CreateBuffer 실패).
@@ -104,7 +105,7 @@ namespace Engine {
 			{ "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 8, D3D11_INPUT_PER_VERTEX_DATA, 0 },  // u,v 는 x,y 다음(8바이트)
 		};
 		hr = device->CreateInputLayout(
-			layout, _countof(layout),                            // _countof: 배열 원소 개수 (여기선 1)
+			layout, _countof(layout),                            // _countof: 배열 원소 개수 (여기선 2)
 			vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), // VS 바이트코드: 시맨틱 이름이 VS 입력과 맞는지 검사용
 			&m_inputLayout);
 		if (FAILED(hr))
@@ -157,7 +158,7 @@ namespace Engine {
 
 		// ---------- 5) 상수 버퍼 ----------
 		D3D11_BUFFER_DESC cbd{};
-		cbd.ByteWidth = sizeof(SpriteCB); // 상수 버퍼 크기, 80바이트 (16의 배수)
+		cbd.ByteWidth = sizeof(SpriteCB); // 상수 버퍼 크기, 96바이트 (16의 배수)
 		cbd.Usage = D3D11_USAGE_DEFAULT; // DEFAULT: GPU 메모리지만 UpdateSubresource 로 내용 교체 가능
 		//  (IMMUTABLE 은 생성 후 못 바꾸므로 안 된다)
 		cbd.BindFlags = D3D11_BIND_CONSTANT_BUFFER; // 상수 버퍼 용도
@@ -203,8 +204,7 @@ namespace Engine {
 		return true;
 	}
 
-	void SpriteRenderer::DrawQuad(ID3D11ShaderResourceView* srv, float x, float y, float width, float height,
-		float r, float g, float b, float a)   // 기본 인자(= 1.0f)는 여기 다시 쓰지 않는다
+	void SpriteRenderer::DrawQuad(ID3D11ShaderResourceView* srv, const Rect& dest, const Rect& uv, const Color& color)   // 기본 인자(= 1.0f)는 여기 다시 쓰지 않는다
 	{
 		// 이 함수 안에서만 DirectX:: 를 생략 
 		// 헤더에 using namespace 를 쓰면
@@ -215,22 +215,23 @@ namespace Engine {
 		//  크기 1 사각형을 → (width, height) 로 늘리고 → (x, y) 로 옮기고 → NDC 로 투영
 		//  DirectXMath 는 "왼쪽부터 순서대로" 적용된다: Scale * Translate * Proj
 		//  순서를 바꿔서 Translate 먼저 하면 이동한 거리까지 같이 늘어나 버린다
-		XMMATRIX world = XMMatrixScaling(width, height, 1.0f) * XMMatrixTranslation(x, y, 0.0f);
-		XMMATRIX proj = XMLoadFloat4x4(&m_projection);   // 저장용 → 계산용
+		XMMATRIX world = XMMatrixScaling(dest.width, dest.height, 1.0f) * XMMatrixTranslation(dest.x, dest.y, 0.0f);
+		XMMATRIX proj = XMLoadFloat4x4(&m_projection);
 
 		SpriteCB cb;
 		// Transpose(전치: 행과 열 바꾸기)해서 보낸다.
 		// DirectXMath 는 행렬을 "가로줄(행) 단위"로 메모리에 두고,
 		// HLSL 은 기본적으로 "세로줄(열) 단위"로 읽는다. 그대로 보내면 뒤집혀 읽혀서 엉뚱한 곳에 그려진다
 		XMStoreFloat4x4(&cb.transform, XMMatrixTranspose(world * proj));
-		cb.color = XMFLOAT4(r, g, b, a);
+		cb.color = XMFLOAT4(color.r, color.g, color.b, color.a);
+		cb.uvRect = XMFLOAT4(uv.x, uv.y, uv.width, uv.height);
 
 		// CPU 의 cb 내용을 GPU 상수 버퍼로 복사
 		// (대상, 서브리소스 번호, 일부만 복사할 범위(nullptr=전체), 원본 주소, 행 간격, 면 간격) — 뒤 둘은 텍스처용이라 0
 		m_context->UpdateSubresource(m_constantBuffer.Get(), 0, nullptr, &cb, 0, 0);
 
 		// ---------- IA ----------
-		UINT stride = sizeof(Vertex); // 이제 8바이트
+		UINT stride = sizeof(Vertex); // 이제 16바이트
 		UINT offset = 0;
 		m_context->IASetInputLayout(m_inputLayout.Get());
 		m_context->IASetVertexBuffers(0, 1, m_vertexBuffer.GetAddressOf(), &stride, &offset);
@@ -255,17 +256,34 @@ namespace Engine {
 
 	}
 
-	void SpriteRenderer::DrawRect(float x, float y, float width, float height,
-		float r, float g, float b, float a)
+	// 텍스처 전체 = UV (0,0) ~ (1,1)
+	// 이름 없는 namespace 안이 아니라 여기 둬도 되지만, 이 파일 전용 상수라 static constexpr 로 범위를 좁힌다
+	static constexpr Rect kFullUV{ 0.0f, 0.0f, 1.0f, 1.0f };
+
+	void SpriteRenderer::DrawRect(const Rect& dest, const Color& color)
 	{
-		// 흰색 텍스처 × color = color → 단색 사각형
-		DrawQuad(m_whiteTexture.GetSRV(), x, y, width, height, r, g, b, a);
+		DrawQuad(m_whiteTexture.GetSRV(), dest, kFullUV, color); // 흰 텍스처 × color = 단색
 	}
 
-	void SpriteRenderer::DrawTexture(const Texture& texture, float x, float y, float width, float height,
-		float r, float g, float b, float a)
+	void SpriteRenderer::DrawSprite(const Texture& texture, const Rect& dest, const Color& color)
 	{
-		DrawQuad(texture.GetSRV(), x, y, width, height, r, g, b, a);
+		DrawQuad(texture.GetSRV(), dest, kFullUV, color);
+	}
+
+	void SpriteRenderer::DrawSprite(const Texture& texture, const Rect& dest, const Rect& source, const Color& color)
+	{
+		// 픽셀 단위 source → UV 단위 (0~1) 로 변환: 텍스처 크기로 나눈다
+		// GetWidth() 는 UINT(정수) → float 로 바꿔야 정수 나눗셈(40 / 160 = 0)이 되지 않는다
+		float texW = static_cast<float>(texture.GetWidth());
+		float texH = static_cast<float>(texture.GetHeight());
+
+		Rect uv{
+			source.x / texW,
+			source.y / texH,
+			source.width / texW,
+			source.height / texH
+		};
+		DrawQuad(texture.GetSRV(), dest, uv, color);
 	}
 
 }

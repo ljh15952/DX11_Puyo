@@ -1,11 +1,35 @@
 ﻿#include <Windows.h>
-#include <cmath> // std::sin
+#include <cmath> // std::sin, std::fmod
 #include <string> // std::wstring, std::to_wstring
 #include "Window\Window.h"
 #include "Graphics\Graphics.h"
 #include "Timer\Timer.h"
 #include "Sprite\SpriteRenderer.h"
 #include "Texture\Texture.h"
+#include "Math\MathTypes.h"
+
+// ---------- 게임(Pu) 전용 데이터: 엔진이 아니라 게임 쪽에 둔다 ----------
+// using: 긴 이름에 짧은 별명
+using Engine::Rect;
+using Engine::Color;
+
+// 뿌요 색 (흰색 시트에 곱해지는 틴트)
+// constexpr: 컴파일할 때 값이 정해지는 상수 (#define 대신)
+constexpr Color kPuyoRed{ 1.00f, 0.35f, 0.35f, 1.0f };
+constexpr Color kPuyoGreen{ 0.40f, 1.00f, 0.40f, 1.0f };
+constexpr Color kPuyoBlue{ 0.40f, 0.55f, 1.00f, 1.0f };
+constexpr Color kPuyoYellow{ 1.00f, 0.95f, 0.35f, 1.0f };
+constexpr Color kPuyoPurple{ 0.80f, 0.45f, 1.00f, 1.0f };
+
+// 시트 안 프레임 위치 (픽셀). 한 칸 40x40 이 가로로 4개
+constexpr float kFrameSize = 40.0f;
+// 몇 번째 프레임인지 → 시트의 잘라 올 영역
+// constexpr 함수: 컴파일 시점에도 계산할 수 있는 함수
+constexpr Rect PuyoFrame(int index)
+{
+	return Rect{ index * kFrameSize, 0.0f, kFrameSize, kFrameSize };
+}
+enum PuyoFace { FaceNormal = 0, FaceBlink = 1, FaceHappy = 2, FaceSurprised = 3 };  // enum: 이름 붙은 정수 상수 묶음
 
 int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
 
@@ -27,12 +51,12 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
 	}
 
 	// graphics 보다 뒤에 선언 → 먼저 소멸 (spriteRenderer 와 같은 이유)
-	Engine::Texture puyoTexture;
+	Engine::Texture puyoSheet;
 	// 경로 구분자는 / 를 써도 Windows 가 알아듣는다.
-	//  \ 를 쓰려면 문자열 안에서는 L"Assets\\puyo.png" 처럼 두 번 써야 한다 (\ 하나는 이스케이프 문자라서)
-	if (!puyoTexture.Load(graphics.GetDevice(), L"Assets/puyo.png"))
+	//  \ 를 쓰려면 문자열 안에서는 L"Assets\\puyo_sheet.png" 처럼 두 번 써야 한다 (\ 하나는 이스케이프 문자라서)
+	if (!puyoSheet.Load(graphics.GetDevice(), L"Assets/puyo_sheet.png"))
 	{
-		MessageBoxW(nullptr, L"Assets/puyo.png 를 읽지 못했습니다", L"Error", MB_OK);  // 실패 이유를 눈에 보이게
+		MessageBoxW(nullptr, L"Assets/puyo_sheet.png 를 읽지 못했습니다", L"Error", MB_OK);
 		return -1;
 	}
 
@@ -82,11 +106,25 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
 		if (fallY > cell * 11)
 			fallY = 0.0f; // 바닥(12번째 칸)에 닿으면 맨 위로
 
-		spriteRenderer.DrawRect(boardX, boardY, cell * 6, cell * 12, 0.05f, 0.05f, 0.1f);
-		// 원본 색 그대로 (틴트 생략 → 흰색)
-		spriteRenderer.DrawTexture(puyoTexture, boardX + cell * 2, boardY + fallY, cell, cell);
-		// 초록 틴트: R 과 B 를 줄여서 초록빛만 남긴다
-		spriteRenderer.DrawTexture(puyoTexture, boardX + cell * 2, boardY + fallY - cell, cell, cell, 0.4f, 1.0f, 0.4f);
+		// 3초마다 0.15초 동안 눈 깜빡임
+		// std::fmod(a, b): 실수 나머지 (a % b 의 float 버전). t 가 0~3 사이를 반복하게 만든다
+		int face = (std::fmod(t, 3.0f) < 0.15f) ? FaceBlink : FaceNormal;
+
+		// 보드 배경
+		spriteRenderer.DrawRect(Rect{ boardX, boardY, cell * 6, cell * 12 }, Color{ 0.05f, 0.05f, 0.1f, 1.0f });
+		// 떨어지는 2개짜리 (빨강 아래, 초록 위)
+		spriteRenderer.DrawSprite(puyoSheet, Rect{ boardX + cell * 2, boardY + fallY,        cell, cell }, PuyoFrame(face), kPuyoRed);
+		spriteRenderer.DrawSprite(puyoSheet, Rect{ boardX + cell * 2, boardY + fallY - cell, cell, cell }, PuyoFrame(face), kPuyoGreen);
+
+		// 바닥 줄: 모든 프레임 × 다른 색 미리보기
+		float bottomY = boardY + cell * 11;
+		spriteRenderer.DrawSprite(puyoSheet, Rect{ boardX + cell * 0, bottomY, cell, cell }, PuyoFrame(FaceNormal), kPuyoBlue);
+		spriteRenderer.DrawSprite(puyoSheet, Rect{ boardX + cell * 1, bottomY, cell, cell }, PuyoFrame(FaceHappy), kPuyoYellow);
+		spriteRenderer.DrawSprite(puyoSheet, Rect{ boardX + cell * 3, bottomY, cell, cell }, PuyoFrame(FaceSurprised), kPuyoPurple);
+		// source 없이 → 시트 전체(4프레임)가 한 칸에 납작하게 들어간다 (오버로드 차이 확인용)
+		spriteRenderer.DrawSprite(puyoSheet, Rect{ boardX + cell * 4, bottomY, cell * 2, cell / 2 });
+
+
 
 		graphics.EndFrame();
 	}

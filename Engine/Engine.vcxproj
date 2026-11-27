@@ -152,6 +152,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="Src\Graphics\Graphics.h" />
+    <ClInclude Include="Src\Math\MathTypes.h" />
     <ClInclude Include="Src\Sprite\SpriteRenderer.h" />
     <ClInclude Include="Src\Sprite\SpriteShader.h" />
     <ClInclude Include="Src\Texture\Texture.h" />

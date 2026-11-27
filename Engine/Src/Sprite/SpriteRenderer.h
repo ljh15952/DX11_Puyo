@@ -2,6 +2,7 @@
 #include "..\Graphics\Graphics.h"
 #include <DirectXMath.h> // MS 의 SIMD 수학 라이브러리 (벡터·행렬). 헤더만 있어서 lib 링크 불필요
 #include "..\Texture\Texture.h"
+#include "..\Math\MathTypes.h"
 
 /*
 단계	내용										새로 배우는 것
@@ -67,17 +68,20 @@ namespace Engine {
 
 		bool Init(Graphics& graphics);
 
-		// (x, y) = 사각형 왼쪽 위 픽셀 좌표, width/height = 픽셀 크기, rgba = 0.0~1.0
-		//  float a = 1.0f : 기본 인자. 호출할 때 a 를 생략하면 1.0f(불투명)가 들어간다.
-		//                   기본 인자는 선언(헤더)에만 쓰고, cpp 정의에는 다시 쓰지 않는다
-		void DrawRect(float x, float y, float width, float height,
-			float r, float g, float b, float a = 1.0f);
+		// 단색 사각형
+		// const Rect& : 16바이트 구조체를 복사하지 않고 빌려 본다 (읽기 전용)
+		void DrawRect(const Rect& dest, const Color& color);
 
-		// 텍스처를 (x, y) 에 width x height 크기로 그린다. rgba = 틴트 (기본 흰색 = 원본 색)
-		//  const Texture& : 복사 없이 빌려 보기만 한다 (const = 안 바꾼다는 약속)
-		void DrawTexture(const Texture& texture, float x, float y, float width, float height,
-			float r = 1.0f, float g = 1.0f, float b = 1.0f, float a = 1.0f);
+		// 텍스처 전체를 dest 영역에 그린다
+		void DrawSprite(const Texture& texture, const Rect& dest, const Color& color = Colors::White);
 
+		// 텍스처 중 source 영역(픽셀)만 잘라서 dest 에 그린다 (스프라이트 시트용)
+		// 함정: Rect 와 Color 는 둘 다 "float 4개"라서
+		// DrawSprite(tex, dest, { 0, 0, 40, 40 })  처럼 타입 없이 {} 만 쓰면
+		// Rect 인지 Color 인지 몰라서 "모호한 호출" 컴파일 에러가 난다
+		// → 항상 Rect{ ... }, Color{ ... } 처럼 타입 이름을 붙여 쓴다
+		void DrawSprite(const Texture& texture, const Rect& dest, const Rect& source,
+			const Color& color = Colors::White);
 
 	private:
 		//빌린 포인터(소유하지 않음).그래서 ComPtr 이 아니라 생포인터로 둔다.
@@ -98,10 +102,8 @@ namespace Engine {
 		// → 저장은 XMFLOAT4X4 (일반 float 16개), 계산할 때만 XMMATRIX 로 불러온다(Load)
 		DirectX::XMFLOAT4X4 m_projection{}; // 픽셀 좌표 → NDC 직교 투영 행렬 (Init 에서 한 번 계산)
 
-		// DrawRect / DrawTexture 가 공통으로 쓰는 실제 그리기 함수.
-		//  밖에서 쓸 일이 없어서 private (사용자는 위 두 함수만 알면 된다)
-		void DrawQuad(ID3D11ShaderResourceView* srv, float x, float y, float width, float height,
-			float r, float g, float b, float a);
+		// uv: 텍스처에서 읽을 영역 (UV 단위, 전체 = {0,0,1,1})
+		void DrawQuad(ID3D11ShaderResourceView* srv, const Rect& dest, const Rect& uv, const Color& color);
 
 		ComPtr<ID3D11SamplerState> m_sampler; // 텍스처 읽는 규칙
 		Texture m_whiteTexture; // 1x1 흰색. DrawRect(단색) 용

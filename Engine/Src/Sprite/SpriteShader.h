@@ -43,11 +43,19 @@ namespace Engine {
 	//  * color              틴트(tint). 텍스처 색에 곱한다. 흰색(1,1,1,1)이면 원본 그대로
 	//  VS 가 내보낸 uv 도 color 때처럼 정점 사이에서 보간되어 PS 로 들어온다
 
+	// ---- 5-4 추가 설명 ----
+	//  uvRect (float4)   텍스처에서 읽을 영역 (UV 단위). xy = 시작 위치, zw = 크기
+	//                    전체 이미지 = (0, 0, 1, 1)
+	//  .xy / .zw         "스위즐(swizzle)": float4 의 성분을 골라 꺼내는 문법. .zw = 3,4번째 성분
+	//  input.uv * uvRect.zw + uvRect.xy
+	//                    0~1 의 UV 를 "크기만큼 줄이고 → 시작 위치로 옮긴다" (정점 위치의 Scale→Translate 와 같은 원리)
+
 	inline constexpr const char* kSpriteShaderSource = R"(
 
 cbuffer SpriteCB : register(b0){
 	float4x4 transform;
 	float4 color;
+	float4 uvRect;
 };
 
 Texture2D spriteTexture : register(t0);
@@ -66,7 +74,7 @@ struct PSInput{
 PSInput VSMain(VSInput input){
 	PSInput output;
 	output.pos = mul(float4(input.pos, 0.0f, 1.0f), transform);
-	output.uv = input.uv;
+	output.uv = input.uv * uvRect.zw + uvRect.xy;
 	return output;
 }
 
