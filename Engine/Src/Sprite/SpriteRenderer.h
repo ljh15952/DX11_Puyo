@@ -1,6 +1,8 @@
 #pragma once
-#include "Graphics.h"
+#include "..\Graphics\Graphics.h"
 #include <DirectXMath.h> // MS 의 SIMD 수학 라이브러리 (벡터·행렬). 헤더만 있어서 lib 링크 불필요
+#include "..\Texture\Texture.h"
+
 /*
 단계	내용										새로 배우는 것
 5-1		색깔 삼각형 1개 그리기						렌더링 파이프라인, 셰이더, 정점 버퍼, 입력 레이아웃
@@ -71,6 +73,12 @@ namespace Engine {
 		void DrawRect(float x, float y, float width, float height,
 			float r, float g, float b, float a = 1.0f);
 
+		// 텍스처를 (x, y) 에 width x height 크기로 그린다. rgba = 틴트 (기본 흰색 = 원본 색)
+		//  const Texture& : 복사 없이 빌려 보기만 한다 (const = 안 바꾼다는 약속)
+		void DrawTexture(const Texture& texture, float x, float y, float width, float height,
+			float r = 1.0f, float g = 1.0f, float b = 1.0f, float a = 1.0f);
+
+
 	private:
 		//빌린 포인터(소유하지 않음).그래서 ComPtr 이 아니라 생포인터로 둔다.
 		//  Graphics 가 이 객체보다 먼저 사라지면 안 된다 → main 에서 선언 순서로 보장
@@ -90,6 +98,13 @@ namespace Engine {
 		// → 저장은 XMFLOAT4X4 (일반 float 16개), 계산할 때만 XMMATRIX 로 불러온다(Load)
 		DirectX::XMFLOAT4X4 m_projection{}; // 픽셀 좌표 → NDC 직교 투영 행렬 (Init 에서 한 번 계산)
 
+		// DrawRect / DrawTexture 가 공통으로 쓰는 실제 그리기 함수.
+		//  밖에서 쓸 일이 없어서 private (사용자는 위 두 함수만 알면 된다)
+		void DrawQuad(ID3D11ShaderResourceView* srv, float x, float y, float width, float height,
+			float r, float g, float b, float a);
+
+		ComPtr<ID3D11SamplerState> m_sampler; // 텍스처 읽는 규칙
+		Texture m_whiteTexture; // 1x1 흰색. DrawRect(단색) 용
 	};
 
 }

@@ -35,6 +35,14 @@ namespace Engine {
 	//  mul(v, M)        : 벡터 v 에 행렬 M 을 곱한다 (행 벡터 방식: v 가 왼쪽)
 	//  정점 색(COLOR)을 없애고, 색은 상수 버퍼의 color 하나로 사각형 전체를 칠한다
 
+	// ---- 5-3 추가 설명 ----
+	//  Texture2D    spriteTexture : register(t0)  텍스처. t0 = 텍스처(SRV) 0번 슬롯 ← PSSetShaderResources(0, ...)
+	//  SamplerState spriteSampler : register(s0)  샘플러. s0 = 샘플러 0번 슬롯    ← PSSetSamplers(0, ...)
+	//  : TEXCOORD           UV 좌표용 시맨틱 (TEXture COORDinate)
+	//  tex.Sample(s, uv)    uv 위치의 색을 샘플러 규칙대로 읽는다 (float4 RGBA, 0.0~1.0)
+	//  * color              틴트(tint). 텍스처 색에 곱한다. 흰색(1,1,1,1)이면 원본 그대로
+	//  VS 가 내보낸 uv 도 color 때처럼 정점 사이에서 보간되어 PS 로 들어온다
+
 	inline constexpr const char* kSpriteShaderSource = R"(
 
 cbuffer SpriteCB : register(b0){
@@ -42,22 +50,28 @@ cbuffer SpriteCB : register(b0){
 	float4 color;
 };
 
+Texture2D spriteTexture : register(t0);
+SamplerState spriteSampler : register(s0);
+
 struct VSInput{
 	float2 pos : POSITION;
+	float2 uv : TEXCOORD;
 };
 
 struct PSInput{
 	float4 pos : SV_POSITION;
+	float2 uv : TEXCOORD;
 };
 
 PSInput VSMain(VSInput input){
 	PSInput output;
 	output.pos = mul(float4(input.pos, 0.0f, 1.0f), transform);
+	output.uv = input.uv;
 	return output;
 }
 
 float4 PSMain(PSInput input) : SV_TARGET{
-	return color;
+	return spriteTexture.Sample(spriteSampler, input.uv) * color;
 }
 )";
 

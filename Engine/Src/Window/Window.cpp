@@ -8,9 +8,21 @@ namespace Engine {
 		if (m_hwnd)
 			DestroyWindow(m_hwnd);
 		UnregisterClassW(kClassName, m_hinstance);
+
+
+		// CoInitializeEx 를 성공했으면 반드시 CoUninitialize 로 짝을 맞춘다 (열었으면 닫는다)
+		if (m_comInitialized) CoUninitialize();
+
 	}
 
 	bool Window::Create(const wchar_t* title, int width, int height) {
+
+		// CoInitializeEx: 이 스레드에서 COM 을 사용하겠다고 선언 (WIC 이미지 로더가 COM 이라 필요)
+		// COINIT_APARTMENTTHREADED: "COM 객체를 이 스레드 하나에서만 쓴다" 모드. 창(UI)이 있는 스레드의 표준
+		HRESULT hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+		if (FAILED(hr)) return false;
+		m_comInitialized = true;
+
 
 		// 현재 exe 의 인스턴스
 		m_hinstance = GetModuleHandleW(nullptr);

@@ -48,6 +48,14 @@ namespace Engine {
 		HINSTANCE m_hinstance = nullptr;
 		int m_width = 0;
 		int m_height = 0;
+
+
+
+		// COM 을 켰는지 기억해 두었다가 소멸자에서 짝을 맞춰 끈다
+		// (지금은 Window 가 가장 먼저 생성·가장 나중에 파괴되는 객체라 여기에 둔다.
+		// 나중에 엔진 전체를 관리하는 App 클래스를 만들면 그쪽으로 옮긴다)
+		bool m_comInitialized = false;
+
 	};
 
 }

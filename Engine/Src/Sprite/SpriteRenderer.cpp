@@ -13,9 +13,10 @@ namespace Engine {
 	//  다른 cpp 에 같은 이름(Vertex 등)이 있어도 충돌하지 않는다. (파일 전용 static 과 같은 효과)
 
 	namespace {
-		// 정점 = 위치만 (색은 상수 버퍼로 옮겼다). float 2개 = 8바이트
+		// 위치 + UV. float 4개 = 16바이트
 		struct Vertex {
-			float x, y;
+			float x, y; // 위치 (오프셋 0)
+			float u, v; // 텍스처 좌표 (오프셋 8)
 		};
 
 		// HLSL 의 cbuffer SpriteCB 와 똑같은 모양
@@ -99,6 +100,8 @@ namespace Engine {
 			// 시맨틱 이름 | 시맨틱 번호 | 형식                          | 슬롯 | 오프셋 | 정점마다 읽음            | (인스턴싱용)
 			{ "POSITION",  0,            DXGI_FORMAT_R32G32_FLOAT,       0,     0,       D3D11_INPUT_PER_VERTEX_DATA, 0 },
 			//  R32G32_FLOAT       = 32비트 float 2개 (= float2)
+
+			{ "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 8, D3D11_INPUT_PER_VERTEX_DATA, 0 },  // u,v 는 x,y 다음(8바이트)
 		};
 		hr = device->CreateInputLayout(
 			layout, _countof(layout),                            // _countof: 배열 원소 개수 (여기선 1)
@@ -110,12 +113,13 @@ namespace Engine {
 		// ---------- 3) 정점 버퍼 ----------
 		//  정점 순서 = 시계 방향 (위 → 오른쪽 아래 → 왼쪽 아래)
 		//  D3D 는 기본적으로 "시계 방향 = 앞면"으로 보고, 반시계 방향 삼각형은 뒷면이라 안 그린다 (컬링).
+		// 크기 1 사각형이라 위치와 UV 가 똑같다 (왼쪽 위 = 텍스처의 왼쪽 위)
 		Vertex vertices[] =
 		{
-			{ 0.0f, 0.0f },   // 0: 왼쪽 위
-			{ 1.0f, 0.0f },   // 1: 오른쪽 위
-			{ 1.0f, 1.0f },   // 2: 오른쪽 아래
-			{ 0.0f, 1.0f },   // 3: 왼쪽 아래
+			{ 0.0f, 0.0f,   0.0f, 0.0f },   // 0: 왼쪽 위
+			{ 1.0f, 0.0f,   1.0f, 0.0f },   // 1: 오른쪽 위
+			{ 1.0f, 1.0f,   1.0f, 1.0f },   // 2: 오른쪽 아래
+			{ 0.0f, 1.0f,   0.0f, 1.0f },   // 3: 왼쪽 아래
 		};
 
 		D3D11_BUFFER_DESC bd{};
@@ -138,7 +142,7 @@ namespace Engine {
 			0, 1, 2, // 삼각형 1
 			0, 2, 3, // 삼각형 2
 		};
-		
+
 		D3D11_BUFFER_DESC ibd{};
 		ibd.ByteWidth = sizeof(indices); // 버퍼 크기 (2바이트 × 6 = 12)
 		ibd.Usage = D3D11_USAGE_IMMUTABLE; // GPU 전용. CPU → GPU 복사만 가능
@@ -155,7 +159,7 @@ namespace Engine {
 		D3D11_BUFFER_DESC cbd{};
 		cbd.ByteWidth = sizeof(SpriteCB); // 상수 버퍼 크기, 80바이트 (16의 배수)
 		cbd.Usage = D3D11_USAGE_DEFAULT; // DEFAULT: GPU 메모리지만 UpdateSubresource 로 내용 교체 가능
-										//  (IMMUTABLE 은 생성 후 못 바꾸므로 안 된다)
+		//  (IMMUTABLE 은 생성 후 못 바꾸므로 안 된다)
 		cbd.BindFlags = D3D11_BIND_CONSTANT_BUFFER; // 상수 버퍼 용도
 
 		hr = device->CreateBuffer(&cbd, nullptr, &m_constantBuffer); // 초기 데이터 nullptr: 그릴 때마다 채운다
@@ -172,17 +176,41 @@ namespace Engine {
 		DirectX::XMMATRIX proj = DirectX::XMMatrixOrthographicOffCenterLH(0.0f, w, h, 0.0f, 0.0f, 1.0f);
 		DirectX::XMStoreFloat4x4(&m_projection, proj); // 계산용 XMMATRIX → 저장용 XMFLOAT4X4
 
+
+		// ---------- 7) 샘플러 ----------
+		D3D11_SAMPLER_DESC sd{};
+		// POINT: 가장 가까운 픽셀 하나를 그대로 읽는다 → 확대해도 각진 도트 느낌 (픽셀아트에 적합)
+		// LINEAR 로 바꾸면 주변 픽셀을 섞어서 부드럽게(대신 흐릿하게) 확대된다
+		sd.Filter = D3D11_FILTER_MIN_MAG_MIP_POINT;
+		// CLAMP: UV 가 0~1 을 벗어나면 가장자리 색을 쓴다 (WRAP 은 타일처럼 반복)
+		sd.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
+		sd.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP;
+		sd.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP; // 3D 텍스처용이지만 0 이면 에러라 채워 둔다
+
+		sd.ComparisonFunc = D3D11_COMPARISON_NEVER; // 그림자 비교용 (안 씀)
+		sd.MaxLOD = D3D11_FLOAT32_MAX; // 밉맵 단계 제한 없음 (기본값 관례)
+
+		hr = device->CreateSamplerState(&sd, &m_sampler);
+		if (FAILED(hr)) return false;
+
+		// ---------- 8) 1x1 흰색 텍스처 ----------
+		//  0xFFFFFFFF = 4바이트 모두 255 → R=G=B=A=255 (흰색, 불투명)
+		//  0x 는 16진수 표기. FF = 255
+		const std::uint32_t white = 0xFFFFFFFF;
+		if (!m_whiteTexture.Create(device, 1, 1, &white)) return false;
+
+
 		return true;
 	}
 
-	void SpriteRenderer::DrawRect(float x, float y, float width, float height,
+	void SpriteRenderer::DrawQuad(ID3D11ShaderResourceView* srv, float x, float y, float width, float height,
 		float r, float g, float b, float a)   // 기본 인자(= 1.0f)는 여기 다시 쓰지 않는다
 	{
 		// 이 함수 안에서만 DirectX:: 를 생략 
 		// 헤더에 using namespace 를 쓰면
 		// include 하는 모든 파일로 퍼지므로, 범위를 좁게 함수 안에서만 쓴다
 		using namespace DirectX;
-		
+
 		// ---------- 변환 행렬 만들기 ----------
 		//  크기 1 사각형을 → (width, height) 로 늘리고 → (x, y) 로 옮기고 → NDC 로 투영
 		//  DirectXMath 는 "왼쪽부터 순서대로" 적용된다: Scale * Translate * Proj
@@ -216,11 +244,28 @@ namespace Engine {
 		m_context->PSSetShader(m_pixelShader.Get(), nullptr, 0);
 		m_context->PSSetConstantBuffers(0, 1, m_constantBuffer.GetAddressOf());  // b0 ← color 를 PS 가 씀
 		// VS 와 PS 는 따로따로 연결해야 한다. PS 쪽을 빼먹으면 color 가 0(검정·투명)으로 읽힌다
+		// t0 ← 텍스처. 배열을 받는 함수라 "포인터의 주소"를 넘긴다 (srv 는 지역 생포인터라 & 로 OK)
+		m_context->PSSetShaderResources(0, 1, &srv);
+		// s0 ← 샘플러 (ComPtr 이라 GetAddressOf)
+		m_context->PSSetSamplers(0, 1, m_sampler.GetAddressOf());
 
 		// ---------- 그리기 ----------
 		//  Draw 대신 DrawIndexed: (인덱스 개수, 시작 인덱스, 정점 번호에 더할 값)
 		m_context->DrawIndexed(6, 0, 0);
 
+	}
+
+	void SpriteRenderer::DrawRect(float x, float y, float width, float height,
+		float r, float g, float b, float a)
+	{
+		// 흰색 텍스처 × color = color → 단색 사각형
+		DrawQuad(m_whiteTexture.GetSRV(), x, y, width, height, r, g, b, a);
+	}
+
+	void SpriteRenderer::DrawTexture(const Texture& texture, float x, float y, float width, float height,
+		float r, float g, float b, float a)
+	{
+		DrawQuad(texture.GetSRV(), x, y, width, height, r, g, b, a);
 	}
 
 }

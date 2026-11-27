@@ -4,7 +4,8 @@
 #include "Window\Window.h"
 #include "Graphics\Graphics.h"
 #include "Timer\Timer.h"
-#include "Graphics\SpriteRenderer.h"
+#include "Sprite\SpriteRenderer.h"
+#include "Texture\Texture.h"
 
 int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
 
@@ -13,14 +14,27 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
 		return -1;
 
 	// 지역 변수는 선언의 "역순"으로 소멸된다 → graphics 가 먼저 정리되고 window 가 나중에 파괴된다.
-	//  반대로 하면 창이 먼저 사라진 뒤 스왑체인이 정리되어 문제가 될 수 있다
+	// 반대로 하면 창이 먼저 사라진 뒤 스왑체인이 정리되어 문제가 될 수 있다
 	Engine::Graphics graphics;
 	if (!graphics.Init(window.GetHwnd(), window.GetWidth(), window.GetHeight()))
 		return -1;
 
 	Engine::SpriteRenderer spriteRenderer;
 	if (!spriteRenderer.Init(graphics))
+	{
+		MessageBoxW(nullptr, L"SpriteRenderer 초기화 실패 (출력 창의 셰이더 에러 확인)", L"Error", MB_OK);
 		return -1;
+	}
+
+	// graphics 보다 뒤에 선언 → 먼저 소멸 (spriteRenderer 와 같은 이유)
+	Engine::Texture puyoTexture;
+	// 경로 구분자는 / 를 써도 Windows 가 알아듣는다.
+	//  \ 를 쓰려면 문자열 안에서는 L"Assets\\puyo.png" 처럼 두 번 써야 한다 (\ 하나는 이스케이프 문자라서)
+	if (!puyoTexture.Load(graphics.GetDevice(), L"Assets/puyo.png"))
+	{
+		MessageBoxW(nullptr, L"Assets/puyo.png 를 읽지 못했습니다", L"Error", MB_OK);  // 실패 이유를 눈에 보이게
+		return -1;
+	}
 
 	Engine::Timer timer;
 	timer.Reset(); // 초기화에 걸린 시간이 첫 dt 에 섞이지 않게 루프 직전에 기준점을 잡는다
@@ -69,8 +83,10 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
 			fallY = 0.0f; // 바닥(12번째 칸)에 닿으면 맨 위로
 
 		spriteRenderer.DrawRect(boardX, boardY, cell * 6, cell * 12, 0.05f, 0.05f, 0.1f);
-		spriteRenderer.DrawRect(boardX + cell * 2, boardY + fallY, cell, cell, 0.9f, 0.2f, 0.2f);
-		spriteRenderer.DrawRect(boardX + cell * 2, boardY + fallY - cell, cell, cell, 0.2f, 0.8f, 0.2f);
+		// 원본 색 그대로 (틴트 생략 → 흰색)
+		spriteRenderer.DrawTexture(puyoTexture, boardX + cell * 2, boardY + fallY, cell, cell);
+		// 초록 틴트: R 과 B 를 줄여서 초록빛만 남긴다
+		spriteRenderer.DrawTexture(puyoTexture, boardX + cell * 2, boardY + fallY - cell, cell, cell, 0.4f, 1.0f, 0.4f);
 
 		graphics.EndFrame();
 	}
